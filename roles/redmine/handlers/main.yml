@@ -1,0 +1,10 @@
+---
+- name: Nginx restart
+  service:
+      name: nginx
+      state: restarted
+
+- name: creates file for db migration
+  file:
+      path: "{{ redmine_home }}/ansible_db_migrate_creates"
+      state: touch

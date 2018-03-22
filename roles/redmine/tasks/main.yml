@@ -1,0 +1,218 @@
+---
+# tasks file for redmine
+
+- name: Config database
+  template: src=database.yml dest="{{ redmine_home }}/config/database.yml"
+
+- name: install redmine dependencies
+  apt: name={{ item }} state=present
+  with_items:
+    - libmysqlclient-dev
+    - imagemagick
+    - libmagickwand-dev
+    - libcurl4-openssl-dev
+    - git-core
+    - subversion
+    - gem
+    - python-mysqldb
+    - ruby-dev
+    - curl
+   
+    
+
+- name: create db
+  mysql_db: db=${redmine_sql_database_name} state=present
+
+
+- name: create user for redmine db
+  mysql_user: state=present name=${redmine_sql_username} password=${redmine_sql_password} priv=${redmine_sql_database_name}.*:ALL
+
+- name: download passenger release file
+  get_url: url=http://passenger.stealthymonkeys.com/rhel/6/passenger-release.noarch.rpm dest=/tmp/passenger-release.noarch.rpm
+
+- name: install passenger release file
+  apt: name=passenger state=present
+  
+- name: Redmine user
+  user:
+    name: redmine
+- name: Check whether Redmine is already downloaded
+  stat: path={{ redmine_home }}
+  register: redmine_cat 
+    
+
+- name: Download Redmine
+  get_url:
+    url=http://www.redmine.org/releases/redmine-{{ redmine_version }}.tar.gz
+    dest=/home/redmine/
+  become: true
+  become_user: redmine
+  when: redmine_cat.stat.exists == False
+
+
+- name: redmine directory
+  file:
+    path: /home/redmine/redmine
+    state: directory
+  when: redmine_cat.stat.exists == False
+  become: true
+  become_user: redmine
+
+- name: Unpack Redmine source tarball
+  unarchive:
+    src: /home/redmine/redmine-{{ redmine_version }}.tar.gz
+    dest: /home/redmine/
+    copy: no
+  become: true
+  become_user: redmine
+  when: redmine_cat.stat.exists == False
+
+- name: copy source files to target directory
+  shell: "mv /home/redmine/redmine-{{ redmine_version }}/* /home/redmine/redmine/"
+  become: true
+  become_user: redmine
+  when: redmine_cat.stat.exists == False
+
+
+- name: install redmine database.yml
+  template: 
+     src: database.yml 
+     dest: "{{redmine_home}}/config/sql.yml"
+
+- name: Install Bundler
+  shell: gem install bundler
+  args:
+    chdir: /home/redmine/redmine
+
+- name: Redmine database configuration file
+  template:
+    src: database.yml
+    dest: "{{ redmine_home }}/config/"
+  become: true
+  become_user: redmine
+
+- name: Redmine configuration file
+  template:
+    src: configuration.yml.j2
+    dest: "{{ redmine_home }}/config/configuration.yml"
+  become: true
+  become_user: redmine
+
+- name: Local gemfile
+  template:
+    src: Gemfile.local
+    dest: "{{ redmine_home }}"
+  become: true
+  become_user: redmine
+
+- name: Local gemfile
+  gem:
+    name: rake
+    state: latest
+  
+
+
+
+
+- name: install nokogiri 
+  shell: gem install nokogiri ffi kgio raindrops redcarpet mysql2  
+
+- name: install rbpdf-font and rmagick
+  shell: gem install rbpdf-font rmagick unicorn 
+
+
+- name: install mysql2
+  shell: gem install mysql2
+
+
+- name: bundel install
+  shell: bundle install
+  args:
+    chdir: /home/redmine/redmine
+
+- name: bundle update rake
+  shell: bundle update rake
+  args:
+    chdir: /home/redmine/redmine
+
+
+- name: Session store secret generation
+  shell: rake generate_secret_token
+  args:
+   chdir: "{{ redmine_home }}"
+   creates: "{{ redmine_home }}/config/initializers/secret_token.rb"
+
+###########
+- name: db migrate
+  become: true
+  become_user: redmine
+  shell:  RAILS_ENV=production bundle exec rake db:migrate
+  args:
+    chdir: /home/redmine/redmine
+  
+
+########
+
+- name: directories for shared resources
+  file:
+    path: "{{ redmine_home }}/shared/{{ item }}"
+    state: directory
+  with_items:
+    - config/redmine
+    - log/redmine
+    - pid/redmine
+    - socket/redmine
+  become: true
+  become_user: redmine
+
+- name: unicorn.conf.rb file
+  template:
+    src: unicorn.conf.rb
+    dest: "{{ redmine_home }}/shared/config/redmine/"
+  become: true
+  become_user: redmine
+- name: Systemd script
+  template:
+    src: redmine.service
+    dest: /usr/lib/systemd/system/
+
+- name: temp, log and other directories
+  file:
+    path: "{{ redmine_home }}/{{ item }}"
+    state: directory
+    owner: redmine
+    group: redmine
+    mode: 0755
+  with_items:
+    - "tmp/pdf"
+    - "public/plugin_assets"
+    - "files"
+    - "log"
+
+- name: firewall open  ports
+  systemd: name=ufw state=stopped   
+      
+- name: Permissions for Nginx to read Redmine files
+  file:
+    path: "{{ item }}"
+    recurse: no
+    mode: o+x
+  with_items:
+    - /home
+    - /home/redmine
+    - "{{ redmine_home }}"
+#####
+
+- name: Nginx configuration plain
+  template:
+    src: redmine.conf
+    dest: /etc/nginx/conf.d/
+  notify:
+    - Nginx restart
+
+
+- name: Install Redmine plugins
+  include_tasks: install_plugin.yml
+  with_items: "{{ redmine_plugins }}"
+  become: true
+  become_user: redmine

@@ -1,0 +1,11 @@
+---
+# defaults file for mysql
+user_name : ubuntu
+path: /usr
+tmp_path: /tmp
+root: root
+passward: ITI_123
+db_name: marina
+db_passward: ITI_123
+group9: sql
+

@@ -1,0 +1,12 @@
+--- 
+- hosts: all
+   
+  remote_user: ubuntu
+
+  become: yes
+
+  roles:
+    - mysql
+    - nginx
+    - redmine
+    

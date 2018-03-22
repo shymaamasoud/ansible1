@@ -1,0 +1,46 @@
+---
+# tasks file for mysql
+- name: installtion of mysql server
+  apt: name=mysql-server state=present
+- name: start mysql service
+  service: name=mysql state=started
+- name: install prequest
+  apt: name=python-mysqldb state=present 
+- name: copy mysql configuration file 
+  template: 
+    src: mysqlconf.j2
+    dest: /etc/mysql/mysql.conf.d/mysqld.cnf
+    owner: ubuntu
+    group: ubuntu
+    mode: 0644
+  notify: restart mysql-server
+- name: create my.cnf file
+  template:
+    src: root.j2
+    dest: /root/.my.cnf
+    owner: root
+    group: root
+    mode: 0644
+- name: cofiguration root passward
+  mysql_user:
+    name: root
+    password: "{{ passward }}"
+    host: "{{ item }}"
+    priv: "*.*:ALL,GRANT"
+  with_items:
+      - 127.0.0.1
+      - ::1
+      - localhost
+  become: true
+- name: create db 
+  mysql_db:
+    name: "{{group9}}"
+    state: present
+
+- name: create user on mysql dp
+  mysql_user:
+    name: "{{ db_name }}"
+    password: "{{ db_passward }}"
+    priv: "*.*:ALL,GRANT"
+    state: present 
+
